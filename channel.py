@@ -8,6 +8,7 @@ import aioodbc.cursor  # noqa: F401
 
 from lib.api import twitch
 from lib.data import ChatCommandArgs
+from lib.database import DatabaseMain
 from lib.helper.chat import permission
 
 DateStruct = Optional[Tuple[int, int, int, int, int, int, int, int, int]]
@@ -42,8 +43,10 @@ async def commandHighlight(args: ChatCommandArgs) -> bool:
             created: datetime = datetime.strptime(
                 data['stream']['created_at'], '%Y-%m-%dT%H:%M:%SZ')
 
-            cursor: aioodbc.cursor
-            async with await args.database.cursor() as cursor:
+            db: DatabaseMain
+            cursor: aioodbc.cursor.Cursor
+            async with DatabaseMain.acquire() as db,\
+                    await db.cursor() as cursor:
                 query: str = '''
 INSERT INTO highlight_marker
     (broadcaster, broadcastId, broadcastTime, markedTime, reason)
@@ -53,7 +56,7 @@ INSERT INTO highlight_marker
                 params = (args.chat.channel, int(data['stream']['_id']),
                           created, currentTime, reason)
                 await cursor.execute(query, params)
-                await args.database.commit()
+                await db.commit()
 
             timeMarked: str = str(currentTime - created)
             args.chat.send(f'Marked highlight at {timeMarked}')
@@ -72,8 +75,9 @@ INSERT INTO highlight_marker
 async def commandListHighlight(args: ChatCommandArgs) -> bool:
     highlights: List[Tuple[int, datetime, datetime, Optional[str]]]
 
-    cursor: aioodbc.cursor
-    async with await args.database.cursor() as cursor:
+    db: DatabaseMain
+    cursor: aioodbc.cursor.Cursor
+    async with DatabaseMain.acquire() as db, await db.cursor() as cursor:
         query = '''
 SELECT broadcastId, broadcastTime, markedTime, reason
     FROM highlight_marker
@@ -133,10 +137,11 @@ Marked highlight on {timestamp - startTime} for broadcast recorded on \
 
 @permission('broadcaster')
 async def commandClearHighlight(args: ChatCommandArgs) -> bool:
+    db: DatabaseMain
     cursor: aioodbc.cursor.Cursor
-    async with await args.database.cursor() as cursor:
+    async with DatabaseMain.acquire() as db, await db.cursor() as cursor:
         query: str = 'DELETE FROM highlight_marker WHERE broadcaster=?'
         await cursor.execute(query, (args.chat.channel,))
-        await args.database.commit()
+        await db.commit()
     args.chat.send('Cleared all marked highlights')
     return True
